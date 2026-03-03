@@ -12,6 +12,11 @@ import FamilyGuardian from './pages/FamilyGuardian';
 import Learn from './pages/Learn';
 
 const UserDashboard = () => {
+    const [isElderlyMode, setIsElderlyMode] = React.useState(false);
+
+    const toggleElderlyMode = () => {
+        setIsElderlyMode(!isElderlyMode);
+    };
     const location = useLocation();
     const navigate = useNavigate();
     const activeTab = location.pathname.split('/')[2] || 'home';
@@ -21,8 +26,8 @@ const UserDashboard = () => {
     };
 
     return (
-        <div className="user-dashboard">
-            <TopNav />
+        <div className={`user-dashboard ${isElderlyMode ? 'elderly-mode' : ''}`}>
+            <TopNav isElderlyMode={isElderlyMode} toggleElderlyMode={toggleElderlyMode} />
 
             <div className="user-main">
                 <Routes>

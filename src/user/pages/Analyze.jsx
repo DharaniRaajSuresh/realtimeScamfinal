@@ -22,6 +22,7 @@ const STT_PUB_BOT_UID = 1002;
 const Analyze = () => {
     const location = useLocation();
     const [activeTab, setActiveTab] = useState(0);
+    const [selectedLanguage, setSelectedLanguage] = useState(null);
 
     // Global Context
     const { isCallActive, riskScore, scamTactics, startAnalysis, stopAnalysis, addTranscriptChunk, transcriptHistory } = useScamContext();
@@ -116,8 +117,19 @@ const Analyze = () => {
         let text = t.text || '';
         let uid = String(t.uid || 'unknown');
         let isFinal = t.isFinal || false;
+        let language = t.language || '';
 
         if (!text.trim()) return;
+
+        // Filter by user's selected language
+        if (selectedLanguage) {
+            if (selectedLanguage === 'en' && !language.startsWith('en')) {
+                return;
+            }
+            if (selectedLanguage === 'ta' && !language.startsWith('ta')) {
+                return;
+            }
+        }
 
         // Only show transcript from the OTHER user (scammer), not from ourselves
         if (myUidRef.current && uid === String(myUidRef.current)) {
@@ -397,23 +409,60 @@ const Analyze = () => {
                         <div style={{ fontSize: '14px', fontWeight: 700, marginBottom: '6px' }}>Live Call Analyzer</div>
                         <div style={{ fontSize: '12px', color: 'var(--muted-u)', marginBottom: '16px' }}>Connect with another device to test scam detection.</div>
 
-                        {!isCallActive && (
-                            <input
-                                className="scan-input"
-                                style={{ textAlign: 'center', marginBottom: '16px', padding: '10px', fontSize: '14px', background: 'var(--bg-u)', border: '1px solid var(--border-u)', borderRadius: '8px', color: 'var(--text-u)' }}
-                                value={channelName}
-                                onChange={(e) => setChannelName(e.target.value)}
-                                placeholder="Enter Room ID (e.g., test-room)"
-                            />
+                        {!isCallActive && !selectedLanguage && (
+                            <div style={{ marginBottom: '20px' }}>
+                                <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '12px' }}>Choose your preferred language / உங்களுக்கு விருப்பமான மொழியைத் தேர்ந்தெடுக்கவும்:</div>
+                                <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
+                                    <button
+                                        className="scan-btn"
+                                        style={{ width: 'auto', padding: '10px 20px', margin: 0 }}
+                                        onClick={() => setSelectedLanguage('en')}
+                                    >English</button>
+                                    <button
+                                        className="scan-btn"
+                                        style={{ width: 'auto', padding: '10px 20px', margin: 0 }}
+                                        onClick={() => setSelectedLanguage('ta')}
+                                    >தமிழ் (Tamil)</button>
+                                </div>
+                            </div>
                         )}
 
-                        <button
-                            className="scan-btn"
-                            onClick={toggleCall}
-                            style={{ borderRadius: '50px', background: isCallActive ? 'linear-gradient(135deg,#ef4444,#dc2626)' : '' }}
-                        >
-                            {isCallActive ? '⏹ STOP LISTENING' : '🎙️ START LISTENING'}
-                        </button>
+                        {!isCallActive && selectedLanguage && (
+                            <div style={{ marginBottom: '16px' }}>
+                                <div style={{ fontSize: '13px', background: 'rgba(79, 142, 255, 0.1)', padding: '12px', borderRadius: '8px', marginBottom: '16px', color: 'var(--blue-u)', border: '1px solid rgba(79,142,255,0.3)' }}>
+                                    {selectedLanguage === 'en'
+                                        ? "Instructions: Enter a room ID, click Start Listening, and talk clearly. The AI will analyze the live call for scams."
+                                        : "வழிமுறைகள்: அறை ஐடியை உள்ளிடவும், Start Listening என்பதை கிளிக் செய்து, தெளிவாகப் பேசவும். நேரடியாக மோசடிகளை AI பகுப்பாய்வு செய்யும்."}
+                                </div>
+                                <input
+                                    className="scan-input"
+                                    style={{ textAlign: 'center', marginBottom: '16px', padding: '10px', fontSize: '14px', background: 'var(--bg-u)', border: '1px solid var(--border-u)', borderRadius: '8px', color: 'var(--text-u)' }}
+                                    value={channelName}
+                                    onChange={(e) => setChannelName(e.target.value)}
+                                    placeholder="Enter Room ID (e.g., test-room)"
+                                />
+                                <button
+                                    className="scan-btn"
+                                    onClick={toggleCall}
+                                    style={{ borderRadius: '50px' }}
+                                >
+                                    🎙️ START LISTENING
+                                </button>
+                                <div style={{ marginTop: '12px', fontSize: '12px', color: 'var(--muted-u)', cursor: 'pointer', textDecoration: 'underline' }} onClick={() => setSelectedLanguage(null)}>
+                                    Change Language / மொழியை மாற்று
+                                </div>
+                            </div>
+                        )}
+
+                        {isCallActive && (
+                            <button
+                                className="scan-btn"
+                                onClick={toggleCall}
+                                style={{ borderRadius: '50px', background: 'linear-gradient(135deg,#ef4444,#dc2626)' }}
+                            >
+                                ⏹ STOP LISTENING
+                            </button>
+                        )}
 
                         {isCallActive && (
                             <>

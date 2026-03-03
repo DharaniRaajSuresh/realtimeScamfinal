@@ -786,3 +786,70 @@ textarea.scan-input:focus {
         height: 32px
     }
 }
+
+/* =========================================
+   ELDERLY MODE GLOBAL OVERRIDES
+   ========================================= */
+.elderly-mode {
+    --text-u: #ffffff;
+    /* Brighter text for contrast */
+}
+
+/* Increase base font sizes for better readability */
+.elderly-mode .brand-name,
+.elderly-mode .shield-label,
+.elderly-mode .quick-label,
+.elderly-mode .panic-title,
+.elderly-mode .u-feed-title,
+.elderly-mode .result-title,
+.elderly-mode .hist-title,
+.elderly-mode .contact-name,
+.elderly-mode .elderly-title {
+    font-size: calc(100% + 4px) !important;
+}
+
+.elderly-mode .brand-tag,
+.elderly-mode .panic-label,
+.elderly-mode .panic-sub,
+.elderly-mode .stat-lbl,
+.elderly-mode .u-feed-desc,
+.elderly-mode .atab,
+.elderly-mode .result-sub,
+.elderly-mode .hist-sub,
+.elderly-mode .contact-role,
+.elderly-mode .elderly-sub {
+    font-size: calc(100% + 3px) !important;
+    color: rgba(255, 255, 255, 0.85) !important;
+    /* Better contrast for muted text */
+}
+
+/* Increase interactive element targets */
+.elderly-mode .scan-btn,
+.elderly-mode .add-contact-btn {
+    font-size: 16px !important;
+    padding: 18px !important;
+}
+
+.elderly-mode textarea.scan-input,
+.elderly-mode input.scan-input {
+    font-size: 16px !important;
+}
+
+/* Enlarge icons */
+.elderly-mode .quick-icon,
+.elderly-mode .panic-icon,
+.elderly-mode .result-emoji,
+.elderly-mode .hist-icon,
+.elderly-mode .contact-avatar,
+.elderly-mode .notif-btn,
+.elderly-mode .avatar {
+    transform: scale(1.15);
+}
+
+.elderly-mode .tab-btn {
+    font-size: 12px !important;
+}
+
+.elderly-mode .tab-btn .t-icon {
+    font-size: 24px !important;
+}
