@@ -1,24 +1,24 @@
 :root {
-    --bg-u: #0d0d0f;
-    --bg2-u: #111318;
-    --card-u: #161a22;
-    --card2-u: #1c2130;
-    --border-u: rgba(255, 255, 255, 0.07);
-    --border2-u: rgba(255, 255, 255, 0.14);
-    --blue-u: #4f8eff;
-    --blue2-u: #7ba8ff;
-    --green-u: #22c55e;
-    --red-u: #ef4444;
-    --orange-u: #f97316;
-    --yellow-u: #fbbf24;
-    --purple-u: #a855f7;
-    --text-u: #e8eaf0;
-    --muted-u: rgba(232, 234, 240, 0.45);
-    --muted2-u: rgba(232, 234, 240, 0.7);
+    --bg-u: #000000;
+    --bg2-u: #000000;
+    --card-u: #1c1c1e;
+    --card2-u: #2c2c2e;
+    --border-u: #2c2c2e;
+    --border2-u: #3a3a3c;
+    --blue-u: #0a84ff;
+    --blue2-u: #5e5ce6;
+    --green-u: #30d158;
+    --red-u: #ff453a;
+    --orange-u: #ff9f0a;
+    --yellow-u: #ffd60a;
+    --purple-u: #bf5af2;
+    --text-u: #ffffff;
+    --muted-u: #8e8e93;
+    --muted2-u: #aeaeb2;
 }
 
 .user-dashboard {
-    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
     background: var(--bg-u);
     color: var(--text-u);
     display: flex;
@@ -27,18 +27,12 @@
     width: 100%;
     overflow: hidden;
     position: relative;
+    -webkit-font-smoothing: antialiased;
 }
 
-/* TOP NAV */
 .topnav {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 14px 28px;
-    background: var(--bg2-u);
-    border-bottom: 1px solid var(--border-u);
-    flex-shrink: 0;
-    z-index: 10;
+    display: none;
+    /* Hide top nav entirely for Contacts feel */
 }
 
 .nav-brand {
@@ -157,22 +151,25 @@
     left: 0;
     right: 0;
     display: flex;
-    background: var(--bg2-u);
-    border-top: 1px solid var(--border-u);
+    background: rgba(28, 28, 30, 0.85);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
     z-index: 100;
     flex-shrink: 0;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 .tab-btn {
     flex: 1;
-    padding: 10px 4px 8px;
+    padding: 8px 4px;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 3px;
+    gap: 4px;
     cursor: pointer;
     font-size: 10px;
-    font-weight: 600;
+    font-weight: 500;
     color: var(--muted-u);
     transition: color .2s;
     border: none;
@@ -194,18 +191,165 @@
     padding: 20px 20px 80px;
 }
 
-/* CARDS */
+/* CARDS & GROUPED LISTS */
 .user-card {
     background: var(--card-u);
-    border: 1px solid var(--border-u);
-    border-radius: 16px;
-    padding: 18px;
-    margin-bottom: 14px;
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 24px;
 }
 
-/* PANIC BUTTON */
+.list-group {
+    background: var(--card-u);
+    border-radius: 12px;
+    margin-bottom: 24px;
+    overflow: hidden;
+}
+
+.list-item {
+    display: flex;
+    align-items: center;
+    padding: 12px 16px;
+    background: var(--card-u);
+    cursor: pointer;
+    border-bottom: 1px solid var(--border-u);
+}
+
+.list-item:last-child {
+    border-bottom: none;
+}
+
+.list-item:active {
+    background: var(--card2-u);
+}
+
+.li-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    margin-right: 14px;
+    flex-shrink: 0;
+    color: white;
+}
+
+.li-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.li-title {
+    font-size: 16px;
+    color: var(--text-u);
+    font-weight: 400;
+    margin-bottom: 2px;
+}
+
+.li-sub {
+    font-size: 13px;
+    color: var(--muted-u);
+}
+
+.li-right {
+    color: var(--muted-u);
+    font-size: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.section-label {
+    font-size: 13px;
+    color: var(--muted-u);
+    text-transform: uppercase;
+    font-weight: 400;
+    margin-bottom: 6px;
+    margin-left: 16px;
+    letter-spacing: 0px;
+}
+
+/* ==============================
+   CONTACT DASHBOARD (HOME)
+   ============================== */
+.contact-header {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-top: 24px;
+    margin-bottom: 24px;
+}
+
+.contact-avatar-large {
+    width: 100px;
+    height: 100px;
+    border-radius: 50%;
+    margin-bottom: 12px;
+    /* fallback if no image */
+    background: linear-gradient(135deg, var(--blue-u), var(--purple-u));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 36px;
+    color: white;
+    font-weight: 600;
+}
+
+.contact-name-large {
+    font-size: 28px;
+    font-weight: 500;
+    margin-bottom: 4px;
+    color: var(--text-u);
+}
+
+.contact-sub-large {
+    font-size: 15px;
+    color: var(--muted-u);
+}
+
+.contact-actions-row {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+    margin-bottom: 32px;
+}
+
+.contact-action-btn {
+    background: var(--card-u);
+    border-radius: 12px;
+    width: 72px;
+    height: 64px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    cursor: pointer;
+    border: none;
+    transition: background 0.2s;
+}
+
+.contact-action-btn:active {
+    background: var(--card2-u);
+}
+
+.contact-action-icon {
+    font-size: 20px;
+    color: var(--blue-u);
+}
+
+.contact-action-label {
+    font-size: 11px;
+    color: var(--blue-u);
+    font-weight: 500;
+}
+
+/* PANIC BUTTON (can reuse contact-action-btn but with red tint if needed) */
 .panic-zone {
-    background: linear-gradient(135deg, rgba(239, 68, 68, 0.12), rgba(249, 115, 22, 0.08));
+    background: rgba(239, 68, 68, 0.12);
     border: 1px solid rgba(239, 68, 68, 0.25);
     border-radius: 20px;
     padding: 24px;
@@ -274,26 +418,24 @@
     color: var(--muted-u);
 }
 
-/* QUICK ACTIONS */
+/* QUICK ACTIONS & STATS ROW */
 .quick-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     gap: 10px;
-    margin-bottom: 14px;
+    margin-bottom: 24px;
 }
 
 .quick-btn {
     background: var(--card-u);
-    border: 1px solid var(--border-u);
-    border-radius: 14px;
+    border-radius: 12px;
     padding: 14px 10px;
     text-align: center;
     cursor: pointer;
-    transition: border-color .2s, background .2s;
+    transition: background .2s;
 }
 
-.quick-btn:hover {
-    border-color: var(--border2-u);
+.quick-btn:active {
     background: var(--card2-u);
 }
 
@@ -304,8 +446,8 @@
 
 .quick-label {
     font-size: 11px;
-    font-weight: 700;
-    color: var(--muted2-u);
+    font-weight: 500;
+    color: var(--text-u);
 }
 
 /* STATS ROW */
@@ -313,13 +455,12 @@
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     gap: 10px;
-    margin-bottom: 14px;
+    margin-bottom: 24px;
 }
 
 .stat-card {
     background: var(--card-u);
-    border: 1px solid var(--border-u);
-    border-radius: 14px;
+    border-radius: 12px;
     padding: 16px;
     text-align: center;
 }
@@ -447,14 +588,14 @@ textarea.scan-input:focus {
     margin-top: 10px;
     padding: 14px;
     border-radius: 12px;
-    background: linear-gradient(135deg, var(--blue-u), #6366f1);
+    background: var(--blue-u);
     border: none;
     color: white;
-    font-size: 14px;
-    font-weight: 700;
+    font-size: 16px;
+    font-weight: 600;
     cursor: pointer;
     transition: opacity .2s, transform .15s;
-    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-family: inherit;
 }
 
 .scan-btn:hover {

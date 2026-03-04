@@ -30,6 +30,7 @@ const Analyze = () => {
     // Call state
     const [channelName, setChannelName] = useState('demo-room-1');
     const [remoteConnected, setRemoteConnected] = useState(false);
+    const [callDuration, setCallDuration] = useState(0);
     const agoraClient = useRef(null);
     const localAudioTrack = useRef(null);
     const currentAgentId = useRef(null);
@@ -56,6 +57,25 @@ const Analyze = () => {
             transcriptEndRef.current.scrollIntoView({ behavior: 'smooth' });
         }
     }, [liveTranscripts]);
+
+    // Timer effect
+    useEffect(() => {
+        let interval;
+        if (remoteConnected && isCallActive) {
+            interval = setInterval(() => {
+                setCallDuration(prev => prev + 1);
+            }, 1000);
+        } else {
+            setCallDuration(0);
+        }
+        return () => clearInterval(interval);
+    }, [remoteConnected, isCallActive]);
+
+    const formatTime = (seconds) => {
+        const m = Math.floor(seconds / 60).toString().padStart(2, '0');
+        const s = (seconds % 60).toString().padStart(2, '0');
+        return `${m}:${s}`;
+    };
 
     /**
      * Decode Agora STT data-stream message.
@@ -117,19 +137,8 @@ const Analyze = () => {
         let text = t.text || '';
         let uid = String(t.uid || 'unknown');
         let isFinal = t.isFinal || false;
-        let language = t.language || '';
 
         if (!text.trim()) return;
-
-        // Filter by user's selected language
-        if (selectedLanguage) {
-            if (selectedLanguage === 'en' && !language.startsWith('en')) {
-                return;
-            }
-            if (selectedLanguage === 'ta' && !language.startsWith('ta')) {
-                return;
-            }
-        }
 
         // Only show transcript from the OTHER user (scammer), not from ourselves
         if (myUidRef.current && uid === String(myUidRef.current)) {
@@ -379,7 +388,7 @@ const Analyze = () => {
     const ms = getMicStatus();
 
     return (
-        <div className={`page active ${ms.pulsingClass}`} id="page-analyze">
+        <div className={`page active ${ms.pulsingClass}`} id="page-analyze" style={{ padding: isCallActive ? '0' : '20px 16px', display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
             {ms.pulsingClass && (
                 <style>
                     {`
@@ -394,236 +403,200 @@ const Analyze = () => {
                 </style>
             )}
 
-            <div style={{ fontSize: '18px', fontWeight: 800, marginBottom: '16px' }}>🔍 Analyze a Threat</div>
+            {isCallActive ? (
+                /* iOS Active Call Screen Design */
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'space-between', background: 'var(--bg-u)', paddingTop: 'max(env(safe-area-inset-top), 40px)', paddingBottom: 'max(env(safe-area-inset-bottom), 20px)', position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 100, overflowY: 'auto' }}>
 
-            <div className="analyzer-tabs">
-                <div className={`atab ${activeTab === 0 ? 'active' : ''}`} onClick={() => setActiveTab(0)}>📞 Call</div>
-                <div className={`atab ${activeTab === 1 ? 'active' : ''}`} onClick={() => setActiveTab(1)}>💬 SMS</div>
-                <div className={`atab ${activeTab === 2 ? 'active' : ''}`} onClick={() => setActiveTab(2)}>🟢 Chat</div>
-            </div>
+                    {/* Top: Avatar & Caller Info */}
+                    <div style={{ textAlign: 'center', width: '100%', marginTop: '10px' }}>
+                        <div style={{ width: '90px', height: '90px', margin: '0 auto 12px', borderRadius: '50%', background: "linear-gradient(135deg, #4b5563, #1f2937)", display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '40px', color: 'rgba(255,255,255,0.4)', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
+                            ?
+                        </div>
+                        <h1 style={{ fontSize: '28px', fontWeight: 300, color: 'var(--text-u)', marginBottom: '4px' }}>Unknown Caller</h1>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '16px', color: remoteConnected ? 'var(--green-u)' : 'var(--muted-u)' }}>
+                            {remoteConnected && <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--green-u)', animation: 'bgPulse 1.5s infinite alternate' }}></div>}
+                            {remoteConnected ? formatTime(callDuration) : 'Connecting...'}
+                        </div>
+                    </div>
 
-            {/* CALL PANEL */}
-            {activeTab === 0 && (
-                <div className="atab-panel active">
-                    <div className="user-card" style={{ textAlign: 'center' }}>
-                        <div style={{ fontSize: '14px', fontWeight: 700, marginBottom: '6px' }}>Live Call Analyzer</div>
-                        <div style={{ fontSize: '12px', color: 'var(--muted-u)', marginBottom: '16px' }}>Connect with another device to test scam detection.</div>
+                    {/* Middle: Analysis / Transcript */}
+                    <div style={{ width: '100%', flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', padding: '16px' }}>
 
-                        {!isCallActive && !selectedLanguage && (
-                            <div style={{ marginBottom: '20px' }}>
-                                <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '12px' }}>Choose your preferred language / உங்களுக்கு விருப்பமான மொழியைத் தேர்ந்தெடுக்கவும்:</div>
-                                <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
-                                    <button
-                                        className="scan-btn"
-                                        style={{ width: 'auto', padding: '10px 20px', margin: 0 }}
-                                        onClick={() => setSelectedLanguage('en')}
-                                    >English</button>
-                                    <button
-                                        className="scan-btn"
-                                        style={{ width: 'auto', padding: '10px 20px', margin: 0 }}
-                                        onClick={() => setSelectedLanguage('ta')}
-                                    >தமிழ் (Tamil)</button>
-                                </div>
-                            </div>
-                        )}
+                        {/* Status (Apple call 'Grid' equivalent) */}
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '16px' }}>
+                            <div style={{ fontSize: '56px', fontWeight: 200, color: ms.color, lineHeight: 1 }}>{ms.v}%</div>
+                            <div style={{ fontSize: '12px', color: 'var(--muted-u)', marginTop: '8px', marginBottom: '8px', letterSpacing: '0.5px' }}>SCAM RISK SCORE</div>
+                            <div style={{ fontSize: '16px', fontWeight: 500, color: ms.color, textAlign: 'center' }}>{ms.lbl}</div>
+                        </div>
 
-                        {!isCallActive && selectedLanguage && (
-                            <div style={{ marginBottom: '16px' }}>
-                                <div style={{ fontSize: '13px', background: 'rgba(79, 142, 255, 0.1)', padding: '12px', borderRadius: '8px', marginBottom: '16px', color: 'var(--blue-u)', border: '1px solid rgba(79,142,255,0.3)' }}>
-                                    {selectedLanguage === 'en'
-                                        ? "Instructions: Enter a room ID, click Start Listening, and talk clearly. The AI will analyze the live call for scams."
-                                        : "வழிமுறைகள்: அறை ஐடியை உள்ளிடவும், Start Listening என்பதை கிளிக் செய்து, தெளிவாகப் பேசவும். நேரடியாக மோசடிகளை AI பகுப்பாய்வு செய்யும்."}
-                                </div>
-                                <input
-                                    className="scan-input"
-                                    style={{ textAlign: 'center', marginBottom: '16px', padding: '10px', fontSize: '14px', background: 'var(--bg-u)', border: '1px solid var(--border-u)', borderRadius: '8px', color: 'var(--text-u)' }}
-                                    value={channelName}
-                                    onChange={(e) => setChannelName(e.target.value)}
-                                    placeholder="Enter Room ID (e.g., test-room)"
-                                />
-                                <button
-                                    className="scan-btn"
-                                    onClick={toggleCall}
-                                    style={{ borderRadius: '50px' }}
-                                >
-                                    🎙️ START LISTENING
-                                </button>
-                                <div style={{ marginTop: '12px', fontSize: '12px', color: 'var(--muted-u)', cursor: 'pointer', textDecoration: 'underline' }} onClick={() => setSelectedLanguage(null)}>
-                                    Change Language / மொழியை மாற்று
-                                </div>
-                            </div>
-                        )}
-
-                        {isCallActive && (
-                            <button
-                                className="scan-btn"
-                                onClick={toggleCall}
-                                style={{ borderRadius: '50px', background: 'linear-gradient(135deg,#ef4444,#dc2626)' }}
-                            >
-                                ⏹ STOP LISTENING
-                            </button>
-                        )}
-
-                        {isCallActive && (
-                            <>
-                                <div style={{
-                                    marginTop: '16px',
-                                    padding: '8px',
-                                    borderRadius: '8px',
-                                    background: remoteConnected ? 'rgba(34, 197, 94, 0.1)' : 'rgba(245, 158, 11, 0.1)',
-                                    color: remoteConnected ? 'var(--green-u)' : 'var(--orange-u)',
-                                    fontSize: '13px',
-                                    fontWeight: 600,
-                                    display: 'flex',
-                                    justifyContent: 'center',
-                                    alignItems: 'center',
-                                    gap: '6px'
-                                }}>
-                                    <div style={{
-                                        width: '8px', height: '8px', borderRadius: '50%',
-                                        background: remoteConnected ? 'var(--green-u)' : 'var(--orange-u)',
-                                        animation: remoteConnected ? 'none' : 'bgPulse 1s infinite alternate'
-                                    }}></div>
-                                    {remoteConnected ? 'Connected with User' : 'Waiting for other user to join...'}
-                                </div>
-                                <div className="mic-wave" style={{ marginTop: '14px' }}>
-                                    {Array.from({ length: 9 }).map((_, i) => (
-                                        <div key={i} className="mic-bar" style={{ animationDelay: `${Math.abs(4 - i) * 0.1}s` }}></div>
-                                    ))}
-                                </div>
-                                <div style={{ marginTop: '12px' }}>
-                                    <div style={{ fontSize: '36px', fontWeight: 800, color: ms.color, transition: 'color 0.3s' }}>{ms.v}%</div>
-                                    <div style={{ fontSize: '12px', color: 'var(--muted-u)' }}>SCAM RISK SCORE</div>
-                                    <div className="risk-bar-bg">
-                                        <div className={`risk-bar-fill ${ms.v > 85 ? 'danger' : ms.v > 60 ? 'warn' : 'safe'}`} style={{ width: `${ms.v}%`, transition: 'width 0.5s ease-out, background 0.3s' }}></div>
+                        {scamTactics.length > 0 && (
+                            <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '8px', marginBottom: '16px' }}>
+                                {scamTactics.map((t, idx) => (
+                                    <div key={idx} style={{ padding: '6px 12px', background: 'rgba(239, 68, 68, 0.15)', color: 'var(--red-u)', fontSize: '12px', fontWeight: 500, borderRadius: '24px' }}>
+                                        {t}
                                     </div>
-                                    <div style={{ fontSize: '12px', color: ms.color, marginTop: '4px', fontWeight: 600 }}>{ms.lbl}</div>
+                                ))}
+                            </div>
+                        )}
+
+                        <div style={{
+                            width: '100%', maxWidth: '360px', background: 'rgba(28, 28, 30, 0.6)',
+                            backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+                            borderRadius: '24px', padding: '16px', minHeight: '120px', maxHeight: '180px',
+                            overflowY: 'auto', border: '1px solid rgba(255,255,255,0.05)'
+                        }}>
+                            <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--muted-u)', textTransform: 'uppercase', marginBottom: '12px', letterSpacing: '1px' }}>
+                                Live Transcript
+                            </div>
+                            {liveTranscripts.length === 0 ? (
+                                <div style={{ fontSize: '14px', color: 'var(--muted-u)', fontStyle: 'italic', textAlign: 'center', marginTop: '10px' }}>
+                                    Listening...
                                 </div>
-                                {scamTactics.length > 0 && (
-                                    <div className="tactic-chips" style={{ justifyContent: 'center', marginTop: '12px' }}>
-                                        {scamTactics.map((t, idx) => (
-                                            <div key={idx} className="chip" style={{ background: 'rgba(239, 68, 68, 0.1)', color: 'var(--red-u)', borderColor: 'rgba(239, 68, 68, 0.3)' }}>{t}</div>
-                                        ))}
+                            ) : (
+                                liveTranscripts.map((t, idx) => (
+                                    <div key={idx} style={{ marginBottom: '10px', fontSize: '16px', lineHeight: '1.4', color: t.isFinal ? 'var(--text-u)' : 'rgba(255,255,255,0.6)' }}>
+                                        <span style={{ fontWeight: 600, color: 'var(--muted-u)', marginRight: '8px' }}>Caller:</span>
+                                        {t.text}
+                                    </div>
+                                ))
+                            )}
+                            <div ref={transcriptEndRef} />
+                        </div>
+                    </div>
+
+                    {/* Bottom: End Call Button */}
+                    <div style={{ paddingTop: '20px', paddingBottom: '20px' }}>
+                        <button
+                            style={{ background: '#ff3b30', width: '76px', height: '76px', borderRadius: '50%', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'transform 0.2s', boxShadow: '0 4px 12px rgba(255, 59, 48, 0.3)' }}
+                            onClick={toggleCall}
+                        >
+                            <span style={{ fontSize: '36px', color: 'white', transform: 'rotate(135deg)', display: 'inline-block' }}>📞</span>
+                        </button>
+                    </div>
+                </div>
+            ) : (
+                /* NORMAL TABS UI */
+                <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflowY: 'auto' }}>
+                    <div style={{ fontSize: '18px', fontWeight: 800, marginBottom: '16px' }}>🔍 Analyze a Threat</div>
+
+                    <div className="analyzer-tabs">
+                        <div className={`atab ${activeTab === 0 ? 'active' : ''}`} onClick={() => setActiveTab(0)}>📞 Call</div>
+                        <div className={`atab ${activeTab === 1 ? 'active' : ''}`} onClick={() => setActiveTab(1)}>💬 SMS</div>
+                        <div className={`atab ${activeTab === 2 ? 'active' : ''}`} onClick={() => setActiveTab(2)}>🟢 Chat</div>
+                    </div>
+
+                    {/* CALL PANEL */}
+                    {activeTab === 0 && (
+                        <div className="atab-panel active">
+                            <div className="user-card" style={{ textAlign: 'center' }}>
+                                <div style={{ fontSize: '14px', fontWeight: 700, marginBottom: '6px' }}>Live Call Analyzer</div>
+                                <div style={{ fontSize: '12px', color: 'var(--muted-u)', marginBottom: '16px' }}>Connect with another device to test scam detection.</div>
+
+                                {!selectedLanguage ? (
+                                    <div style={{ marginBottom: '20px' }}>
+                                        <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '12px' }}>Choose your preferred language / உங்களுக்கு விருப்பமான மொழியைத் தேர்ந்தெடுக்கவும்:</div>
+                                        <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
+                                            <button className="scan-btn" style={{ width: 'auto', padding: '10px 20px', margin: 0 }} onClick={() => setSelectedLanguage('en')}>English</button>
+                                            <button className="scan-btn" style={{ width: 'auto', padding: '10px 20px', margin: 0 }} onClick={() => setSelectedLanguage('ta')}>தமிழ் (Tamil)</button>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div style={{ marginBottom: '16px' }}>
+                                        <div style={{ fontSize: '13px', background: 'rgba(79, 142, 255, 0.1)', padding: '12px', borderRadius: '8px', marginBottom: '16px', color: 'var(--blue-u)', border: '1px solid rgba(79,142,255,0.3)' }}>
+                                            {selectedLanguage === 'en' ? "Instructions: Enter a room ID, click Start Listening, and talk clearly. The AI will analyze the live call for scams." : "வழிமுறைகள்: அறை ஐடியை உள்ளிடவும், Start Listening என்பதை கிளிக் செய்து, தெளிவாகப் பேசவும். நேரடியாக மோசடிகளை AI பகுப்பாய்வு செய்யும்."}
+                                        </div>
+                                        <input
+                                            className="scan-input"
+                                            style={{ textAlign: 'center', marginBottom: '16px', padding: '10px', fontSize: '14px', background: 'var(--bg-u)', border: '1px solid var(--border-u)', borderRadius: '8px', color: 'var(--text-u)' }}
+                                            value={channelName}
+                                            onChange={(e) => setChannelName(e.target.value)}
+                                            placeholder="Enter Room ID (e.g., test-room)"
+                                        />
+                                        <button className="scan-btn" onClick={toggleCall} style={{ borderRadius: '50px' }}>
+                                            🎙️ START LISTENING
+                                        </button>
+                                        <div style={{ marginTop: '12px', fontSize: '12px', color: 'var(--muted-u)', cursor: 'pointer', textDecoration: 'underline' }} onClick={() => setSelectedLanguage(null)}>
+                                            Change Language / மொழியை மாற்று
+                                        </div>
                                     </div>
                                 )}
+                            </div>
+                        </div>
+                    )}
 
-                                {/* LIVE TRANSCRIPT PANEL */}
-                                <div style={{
-                                    marginTop: '18px',
-                                    textAlign: 'left',
-                                    background: 'var(--bg-u)',
-                                    borderRadius: '12px',
-                                    border: '1px solid var(--border-u)',
-                                    padding: '12px',
-                                    maxHeight: '200px',
-                                    overflowY: 'auto'
-                                }}>
-                                    <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--muted-u)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                        <span style={{ display: 'inline-block', width: '6px', height: '6px', borderRadius: '50%', background: '#ef4444', animation: 'bgPulse 1s infinite alternate' }}></span>
-                                        LIVE TRANSCRIPT
-                                    </div>
-                                    {liveTranscripts.length === 0 ? (
-                                        <div style={{ fontSize: '12px', color: 'var(--muted-u)', fontStyle: 'italic' }}>
-                                            Waiting for speech...
-                                        </div>
-                                    ) : (
-                                        liveTranscripts.map((t, idx) => (
-                                            <div key={idx} style={{
-                                                marginBottom: '6px',
-                                                padding: '6px 8px',
-                                                borderRadius: '8px',
-                                                background: t.isFinal ? 'rgba(59, 130, 246, 0.08)' : 'rgba(245, 158, 11, 0.08)',
-                                                fontSize: '12px',
-                                                lineHeight: '1.4'
-                                            }}>
-                                                <span style={{ fontWeight: 700, color: 'var(--blue-u)', marginRight: '6px' }}>
-                                                    UID {t.uid}:
-                                                </span>
-                                                <span style={{ color: t.isFinal ? 'var(--text-u)' : 'var(--muted-u)', fontStyle: t.isFinal ? 'normal' : 'italic' }}>
-                                                    {t.text}
-                                                </span>
+                    {/* SMS PANEL */}
+                    {activeTab === 1 && (
+                        <div className="atab-panel active">
+                            <div className="user-card">
+                                <div style={{ fontSize: '13px', fontWeight: 700, marginBottom: '8px' }}>Paste the suspicious SMS</div>
+                                <textarea className="scan-input" placeholder="e.g. URGENT: Your account blocked..." value={smsInput} onChange={(e) => setSmsInput(e.target.value)}></textarea>
+                                <button className="scan-btn" onClick={handleSmsScan}>🔍 CHECK THIS SMS</button>
+
+                                {smsResult && (
+                                    <div className={`result-card show ${smsResult.analyzing ? '' : (smsResult.isHigh ? 'danger' : smsResult.isMed ? 'warn' : 'safe')}`}>
+                                        <div className="result-header">
+                                            <div className="result-emoji">🚨</div>
+                                            <div>
+                                                <div className="result-pct" style={{ color: smsResult.isHigh ? 'var(--red-u)' : smsResult.isMed ? 'var(--orange-u)' : 'var(--green-u)' }}>
+                                                    {smsResult.analyzing ? '--' : `${smsResult.score}%`}
+                                                </div>
+                                                <div className="result-title">{smsResult.analyzing ? 'Analyzing...' : smsResult.title}</div>
+                                                {!smsResult.analyzing && <div className="result-sub">{smsResult.sub}</div>}
                                             </div>
-                                        ))
-                                    )}
-                                    <div ref={transcriptEndRef} />
-                                </div>
-                            </>
-                        )}
-                    </div>
-                </div>
-            )}
-
-            {/* SMS PANEL */}
-            {activeTab === 1 && (
-                <div className="atab-panel active">
-                    <div className="user-card">
-                        <div style={{ fontSize: '13px', fontWeight: 700, marginBottom: '8px' }}>Paste the suspicious SMS</div>
-                        <textarea className="scan-input" placeholder="e.g. URGENT: Your account blocked..." value={smsInput} onChange={(e) => setSmsInput(e.target.value)}></textarea>
-                        <button className="scan-btn" onClick={handleSmsScan}>🔍 CHECK THIS SMS</button>
-
-                        {smsResult && (
-                            <div className={`result-card show ${smsResult.analyzing ? '' : (smsResult.isHigh ? 'danger' : smsResult.isMed ? 'warn' : 'safe')}`}>
-                                <div className="result-header">
-                                    <div className="result-emoji">🚨</div>
-                                    <div>
-                                        <div className="result-pct" style={{ color: smsResult.isHigh ? 'var(--red-u)' : smsResult.isMed ? 'var(--orange-u)' : 'var(--green-u)' }}>
-                                            {smsResult.analyzing ? '--' : `${smsResult.score}%`}
                                         </div>
-                                        <div className="result-title">{smsResult.analyzing ? 'Analyzing...' : smsResult.title}</div>
-                                        {!smsResult.analyzing && <div className="result-sub">{smsResult.sub}</div>}
+                                        {!smsResult.analyzing && (
+                                            <>
+                                                <div className="risk-bar-bg">
+                                                    <div className={`risk-bar-fill ${smsResult.isHigh ? 'danger' : smsResult.isMed ? 'warn' : 'safe'}`} style={{ width: `${smsResult.score}%` }}></div>
+                                                </div>
+                                                <div className="tactic-chips">
+                                                    {smsResult.found.length > 0 ? smsResult.found.map((f, i) => (
+                                                        <div key={i} className="chip">{f.t}</div>
+                                                    )) : (
+                                                        smsResult.score < 35 && <div className="chip" style={{ background: 'rgba(34,197,94,0.12)', color: 'var(--green-u)', borderColor: 'rgba(34,197,94,0.3)' }}>No threats found</div>
+                                                    )}
+                                                </div>
+                                                <div className="tip-box"><strong>Tip:</strong> {smsResult.tip}</div>
+                                            </>
+                                        )}
                                     </div>
-                                </div>
-                                {!smsResult.analyzing && (
-                                    <>
-                                        <div className="risk-bar-bg">
-                                            <div className={`risk-bar-fill ${smsResult.isHigh ? 'danger' : smsResult.isMed ? 'warn' : 'safe'}`} style={{ width: `${smsResult.score}%` }}></div>
-                                        </div>
-                                        <div className="tactic-chips">
-                                            {smsResult.found.length > 0 ? smsResult.found.map((f, i) => (
-                                                <div key={i} className="chip">{f.t}</div>
-                                            )) : (
-                                                smsResult.score < 35 && <div className="chip" style={{ background: 'rgba(34,197,94,0.12)', color: 'var(--green-u)', borderColor: 'rgba(34,197,94,0.3)' }}>No threats found</div>
-                                            )}
-                                        </div>
-                                        <div className="tip-box"><strong>Tip:</strong> {smsResult.tip}</div>
-                                    </>
                                 )}
                             </div>
-                        )}
-                    </div>
-                </div>
-            )}
+                        </div>
+                    )}
 
-            {/* CHAT PANEL */}
-            {activeTab === 2 && (
-                <div className="atab-panel active">
-                    <div className="user-card">
-                        <div style={{ fontSize: '13px', fontWeight: 700, marginBottom: '4px' }}>Paste WhatsApp / Chat Message</div>
-                        <div style={{ fontSize: '11px', color: 'var(--muted-u)', marginBottom: '10px' }}>Copy any suspicious message and paste it here</div>
-                        <textarea className="scan-input" placeholder="e.g. Hello! I'm from Amazon HR..." value={chatInput} onChange={(e) => setChatInput(e.target.value)}></textarea>
-                        <button className="scan-btn" onClick={handleChatScan}>🟢 ANALYZE MESSAGE</button>
+                    {/* CHAT PANEL */}
+                    {activeTab === 2 && (
+                        <div className="atab-panel active">
+                            <div className="user-card">
+                                <div style={{ fontSize: '13px', fontWeight: 700, marginBottom: '4px' }}>Paste WhatsApp / Chat Message</div>
+                                <div style={{ fontSize: '11px', color: 'var(--muted-u)', marginBottom: '10px' }}>Copy any suspicious message and paste it here</div>
+                                <textarea className="scan-input" placeholder="e.g. Hello! I'm from Amazon HR..." value={chatInput} onChange={(e) => setChatInput(e.target.value)}></textarea>
+                                <button className="scan-btn" onClick={handleChatScan}>🟢 ANALYZE MESSAGE</button>
 
-                        {chatResult && (
-                            <div className={`result-card show ${chatResult.analyzing ? '' : (chatResult.isHigh ? 'danger' : chatResult.isMed ? 'warn' : 'safe')}`}>
-                                <div className="result-header">
-                                    <div className="result-emoji">🚨</div>
-                                    <div>
-                                        <div className="result-pct" style={{ color: chatResult.isHigh ? 'var(--red-u)' : chatResult.isMed ? 'var(--orange-u)' : 'var(--green-u)' }}>
-                                            {chatResult.analyzing ? '--' : `${chatResult.score}%`}
+                                {chatResult && (
+                                    <div className={`result-card show ${chatResult.analyzing ? '' : (chatResult.isHigh ? 'danger' : chatResult.isMed ? 'warn' : 'safe')}`}>
+                                        <div className="result-header">
+                                            <div className="result-emoji">🚨</div>
+                                            <div>
+                                                <div className="result-pct" style={{ color: chatResult.isHigh ? 'var(--red-u)' : chatResult.isMed ? 'var(--orange-u)' : 'var(--green-u)' }}>
+                                                    {chatResult.analyzing ? '--' : `${chatResult.score}%`}
+                                                </div>
+                                                <div className="result-title">{chatResult.analyzing ? 'Analyzing...' : chatResult.title}</div>
+                                            </div>
                                         </div>
-                                        <div className="result-title">{chatResult.analyzing ? 'Analyzing...' : chatResult.title}</div>
+                                        {!chatResult.analyzing && (
+                                            <>
+                                                <div className="risk-bar-bg">
+                                                    <div className={`risk-bar-fill ${chatResult.isHigh ? 'danger' : chatResult.isMed ? 'warn' : 'safe'}`} style={{ width: `${chatResult.score}%` }}></div>
+                                                </div>
+                                            </>
+                                        )}
                                     </div>
-                                </div>
-                                {!chatResult.analyzing && (
-                                    <>
-                                        <div className="risk-bar-bg">
-                                            <div className={`risk-bar-fill ${chatResult.isHigh ? 'danger' : chatResult.isMed ? 'warn' : 'safe'}`} style={{ width: `${chatResult.score}%` }}></div>
-                                        </div>
-                                    </>
                                 )}
                             </div>
-                        )}
-                    </div>
+                        </div>
+                    )}
                 </div>
             )}
         </div>
