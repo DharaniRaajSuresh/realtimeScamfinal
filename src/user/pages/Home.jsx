@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 const Home = () => {
@@ -11,6 +11,36 @@ const Home = () => {
 
     const navigateToAnalyze = () => {
         navigate('/user/analyze');
+    };
+
+    const [feedData, setFeedData] = useState([]);
+    const [loadingFeed, setLoadingFeed] = useState(true);
+
+    useEffect(() => {
+        const fetchFeed = async () => {
+            try {
+                // Resolve backend URL
+                const baseUrl = import.meta.env.VITE_BACKEND_URL
+                    ? import.meta.env.VITE_BACKEND_URL.replace('ws://', 'http://').replace('wss://', 'https://')
+                    : '';
+                const res = await fetch(`${baseUrl}/api/feed`);
+                const data = await res.json();
+                setFeedData(data);
+            } catch (err) {
+                console.error("Failed to load Gemini scam feed:", err);
+                setFeedData([{ title: "Connection Error", description: "Failed to load live scam trends.", severity: "CRITICAL", emoji: "❌" }]);
+            } finally {
+                setLoadingFeed(false);
+            }
+        };
+        fetchFeed();
+    }, []);
+
+    const getSeverityColor = (sev) => {
+        const s = sev?.toUpperCase() || "";
+        if (s.includes("CRITICAL") || s.includes("HIGH")) return "red";
+        if (s.includes("TRENDING") || s.includes("NEW")) return "orange";
+        return "blue";
     };
 
     return (
@@ -64,57 +94,37 @@ const Home = () => {
                     </div>
                     <div className="li-right">3 〉</div>
                 </div>
-                <div className="list-item">
-                    <div className="li-icon" style={{ background: 'var(--orange-u)' }}>💰</div>
-                    <div className="li-content">
-                        <div className="li-title">Money Saved</div>
-                    </div>
-                    <div className="li-right">₹2.4L 〉</div>
-                </div>
             </div>
 
-            <div className="section-label">Awareness Feed</div>
+            <div className="section-label">Live Awareness Feed</div>
             <div className="list-group">
-                <div className="list-item" style={{ alignItems: 'flex-start' }}>
-                    <div className="li-icon" style={{ background: 'var(--red-u)' }}>📞</div>
-                    <div className="li-content">
-                        <div className="li-title">Fake "Account Blocked" Calls</div>
-                        <div className="li-sub" style={{ marginTop: '4px', lineHeight: 1.4 }}>Scammers impersonating bank helplines asking for OTP.</div>
-                        <span className="u-feed-tag red" style={{ marginTop: '8px', alignSelf: 'flex-start' }}>HIGH ALERT</span>
+                {loadingFeed ? (
+                    <div className="list-item" style={{ justifyContent: 'center', padding: '24px' }}>
+                        <div style={{ color: 'var(--muted-u)', fontSize: '14px', animation: 'bgPulse 1.5s infinite alternate' }}>
+                            Fetching latest trends from Gemini...
+                        </div>
                     </div>
-                </div>
-                <div className="list-item" style={{ alignItems: 'flex-start' }}>
-                    <div className="li-icon" style={{ background: 'var(--orange-u)' }}>💼</div>
-                    <div className="li-content">
-                        <div className="li-title">WhatsApp Work-From-Home Scam</div>
-                        <div className="li-sub" style={{ marginTop: '4px', lineHeight: 1.4 }}>"Like YouTube videos for ₹500/hr" registration fee scam.</div>
-                        <span className="u-feed-tag orange" style={{ marginTop: '8px', alignSelf: 'flex-start' }}>TRENDING</span>
-                    </div>
-                </div>
-                <div className="list-item" style={{ alignItems: 'flex-start' }}>
-                    <div className="li-icon" style={{ background: 'var(--purple-u)' }}>🚨</div>
-                    <div className="li-content">
-                        <div className="li-title">Fake CBI "Digital Arrest"</div>
-                        <div className="li-sub" style={{ marginTop: '4px', lineHeight: 1.4 }}>Video calls demanding money to clear fake money laundering charges.</div>
-                        <span className="u-feed-tag red" style={{ marginTop: '8px', alignSelf: 'flex-start' }}>CRITICAL</span>
-                    </div>
-                </div>
-                <div className="list-item" style={{ alignItems: 'flex-start' }}>
-                    <div className="li-icon" style={{ background: 'var(--yellow-u)' }}>⚡</div>
-                    <div className="li-content">
-                        <div className="li-title">Electricity Disconnection SMS</div>
-                        <div className="li-sub" style={{ marginTop: '4px', lineHeight: 1.4 }}>Warnings that power will be cut tonight unless you click a link.</div>
-                        <span className="u-feed-tag orange" style={{ marginTop: '8px', alignSelf: 'flex-start' }}>NEW</span>
-                    </div>
-                </div>
-                <div className="list-item" style={{ alignItems: 'flex-start' }}>
-                    <div className="li-icon" style={{ background: 'var(--blue-u)' }}>📦</div>
-                    <div className="li-content">
-                        <div className="li-title">India Post Delivery Scam</div>
-                        <div className="li-sub" style={{ marginTop: '4px', lineHeight: 1.4 }}>SMS asking for a ₹5 redirect fee via a fake India Post tracking link.</div>
-                        <span className="u-feed-tag blue" style={{ marginTop: '8px', alignSelf: 'flex-start' }}>COMMON</span>
-                    </div>
-                </div>
+                ) : (
+                    feedData.map((item, idx) => {
+                        const colorClass = getSeverityColor(item.severity);
+                        return (
+                            <div key={idx} className="list-item" style={{ alignItems: 'flex-start' }}>
+                                <div className="li-icon" style={{ background: `var(--${colorClass}-u)` }}>
+                                    {item.emoji || '🚨'}
+                                </div>
+                                <div className="li-content">
+                                    <div className="li-title">{item.title}</div>
+                                    <div className="li-sub" style={{ marginTop: '4px', lineHeight: 1.4 }}>
+                                        {item.description}
+                                    </div>
+                                    <span className={`u-feed-tag ${colorClass}`} style={{ marginTop: '8px', alignSelf: 'flex-start' }}>
+                                        {item.severity}
+                                    </span>
+                                </div>
+                            </div>
+                        );
+                    })
+                )}
             </div>
         </div>
     );

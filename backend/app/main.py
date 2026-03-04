@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.endpoints import analyze, agora, websocket, stt
+from app.api.endpoints import analyze, agora, websocket, stt, feed
 
 app = FastAPI(title="AI Scam Shield API")
 
@@ -18,6 +18,7 @@ app.include_router(analyze.router, prefix="/api", tags=["Analysis"])
 app.include_router(agora.router, prefix="/api/agora", tags=["Agora"])
 app.include_router(stt.router, prefix="/api/stt", tags=["STT"])
 app.include_router(websocket.router, tags=["WebSockets"])
+app.include_router(feed.router, prefix="/api/feed", tags=["Scam Feed"])
 
 @app.get("/")
 def root():

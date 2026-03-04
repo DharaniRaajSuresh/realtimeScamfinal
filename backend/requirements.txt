@@ -5,3 +5,4 @@ agora-token-builder
 python-dotenv
 requests
 websockets
+google-genai
