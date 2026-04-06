@@ -10,6 +10,8 @@ export const ScamProvider = ({ children }) => {
     const [riskScore, setRiskScore] = useState(0);
     const [scamTactics, setScamTactics] = useState([]);
     const [vulnerability, setVulnerability] = useState('LOW');
+    const [ollamaReasoning, setOllamaReasoning] = useState('Waiting for deep analysis...');
+    const [latestComplaint, setLatestComplaint] = useState(null);
 
     // Array of { speaker: 'local' | 'remote', text: string, timestamp: number }
     const [transcriptHistory, setTranscriptHistory] = useState([]);
@@ -29,6 +31,15 @@ export const ScamProvider = ({ children }) => {
                         setRiskScore(data.data.risk_score);
                         setScamTactics(data.data.tactics);
                         setVulnerability(data.data.vulnerability);
+                        if (data.data.ollama_reasoning) {
+                            setOllamaReasoning(data.data.ollama_reasoning);
+                        }
+
+                        if (data.type === 'COMPLAINT_FILED') {
+                            setLatestComplaint(data.data);
+                            // Also trigger a vibration/alert if on mobile
+                            triggerAlert();
+                        }
 
                         if (data.data.trigger_golden_minute) {
                             triggerAlert();
@@ -73,6 +84,7 @@ export const ScamProvider = ({ children }) => {
         setRiskScore(0);
         setScamTactics([]);
         setVulnerability('LOW');
+        setOllamaReasoning('Waiting for deep analysis...');
     }, []);
 
     const stopAnalysis = useCallback(() => {
@@ -86,6 +98,8 @@ export const ScamProvider = ({ children }) => {
         riskScore,
         scamTactics,
         vulnerability,
+        ollamaReasoning,
+        latestComplaint,
         transcriptHistory,
         addTranscriptChunk,
         startAnalysis,

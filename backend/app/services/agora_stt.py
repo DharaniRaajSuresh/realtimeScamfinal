@@ -43,13 +43,15 @@ class AgoraSTTManager:
             print(f"[STT] Starting transcription for channel: {channel_name}")
             print(f"[STT] URL: {url}")
             response = requests.post(url, headers=self.headers, json=payload)
-            print(f"[STT] Response status: {response.status_code}")
-            print(f"[STT] Response body: {response.text}")
             response.raise_for_status()
             return response.json()
         except requests.exceptions.HTTPError as errh:
-            print(f"[STT] HTTP Error: {errh.response.text}")
-            return {"error": errh.response.text}
+            error_text = errh.response.text
+            if errh.response.status_code == 409 and ("conflict" in error_text.lower() or "TaskConflict" in error_text):
+                print(f"[STT] Info: Transcription is already actively running for {channel_name} (409 Conflict).")
+            else:
+                print(f"[STT] HTTP Error: {error_text}")
+            return {"error": error_text}
         except requests.exceptions.RequestException as err:
             print(f"[STT] Request Error: {str(err)}")
             return {"error": str(err)}

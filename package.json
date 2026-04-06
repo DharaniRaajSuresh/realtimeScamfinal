@@ -13,6 +13,8 @@
     "agora-rtc-sdk-ng": "^4.24.2",
     "chart.js": "^4.5.1",
     "lucide-react": "^0.575.0",
+    "mongo": "^0.1.0",
+    "mongodb": "^7.1.1",
     "pako": "^2.1.0",
     "protobufjs": "^8.0.0",
     "react": "^19.2.0",

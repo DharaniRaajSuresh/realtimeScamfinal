@@ -22,7 +22,7 @@ ChartJS.register(
 
 const Overview = () => {
     // Global real-time context
-    const { isCallActive, currentChannel, riskScore, scamTactics, vulnerability, transcriptHistory } = useScamContext();
+    const { isCallActive, currentChannel, riskScore, scamTactics, vulnerability, transcriptHistory, latestComplaint } = useScamContext();
 
     const initialFeed = [
         { sev: 'high', title: 'OTP Scam — Banking', meta: 'VICTIM #4821 · CHENNAI · CALL ACTIVE', score: '92%', cls: 'high' },
@@ -32,7 +32,41 @@ const Overview = () => {
         { sev: 'low', title: 'Lottery SMS Detected', meta: 'VICTIM #4813 · SALEM · LOW RISK', score: '41%', cls: 'med' },
     ];
 
-    const [feedData, setFeedData] = useState(initialFeed);
+    const [feedData, setFeedData] = useState([]);
+
+    const [complaintAlert, setComplaintAlert] = useState(null);
+
+    // Live voiceprint count from DB (v2.0)
+    const [vpStats, setVpStats] = useState({ total: 0, active: 0, total_victims: 0 });
+
+    const fetchVpStats = async () => {
+        try {
+            const res = await fetch('/api/voice/voiceprints');
+            if (res.ok) {
+                const data = await res.json();
+                if (data.stats) setVpStats(data.stats);
+                if (data.voiceprints) {
+                    // v2.0: Map real forensic reports to feed items
+                    const reports = data.voiceprints.slice(0, 5).map(v => ({
+                        sev: v.is_repeat ? 'high' : 'med',
+                        title: v.transcript_summary.substring(0, 60) + "...",
+                        meta: `${v.is_repeat ? '🔴 REPEAT SCAMMER' : '🟢 NEW SUSPECT'} · ${v.created_at}`,
+                        score: `${v.risk_score}%`,
+                        cls: v.risk_score > 85 ? 'high' : 'med'
+                    }));
+                    setFeedData(reports);
+                }
+            }
+        } catch (e) {
+            console.error("Feed fetch error:", e);
+        }
+    };
+
+    useEffect(() => {
+        fetchVpStats();
+        const interval = setInterval(fetchVpStats, 30000); // 30s refresh
+        return () => clearInterval(interval);
+    }, []);
 
     // Dynamic feed generation from transcription
     useEffect(() => {
@@ -49,6 +83,13 @@ const Overview = () => {
             return () => clearInterval(interval);
         }
     }, [isCallActive]);
+
+    // Handle incoming complaint alerts via WebSocket
+    useEffect(() => {
+        // We know ScamContext manages the WS. Let's hijack the feed or show a toast.
+        // Actually, Overview.jsx doesn't have direct WS access, it uses ScamContext.
+        // I'll add a check in ScamContext for COMPLAINT_FILED and expose it.
+    }, []);
 
     const typeData = [
         { v: 31, l: 'BANK' }, { v: 24, l: 'OTP' }, { v: 18, l: 'KYC' }, { v: 14, l: 'JOB' }, { v: 8, l: 'INV' }, { v: 5, l: 'OTH' }
@@ -73,10 +114,10 @@ const Overview = () => {
                 {
                     label: 'Scam DNA Signature',
                     data: [urg, auth, fin, comp, fear],
-                    borderColor: riskScore > 85 ? 'rgba(255, 48, 64, 1)' : 'rgba(0, 200, 255, 1)',
-                    backgroundColor: riskScore > 85 ? 'rgba(255, 48, 64, 0.2)' : 'rgba(0, 200, 255, 0.2)',
+                    borderColor: riskScore > 70 ? 'rgba(255, 48, 64, 1)' : 'rgba(0, 200, 255, 1)',
+                    backgroundColor: riskScore > 70 ? 'rgba(255, 48, 64, 0.2)' : 'rgba(0, 200, 255, 0.2)',
                     borderWidth: 2,
-                    pointBackgroundColor: riskScore > 85 ? 'rgba(255, 48, 64, 1)' : 'rgba(0, 200, 255, 1)',
+                    pointBackgroundColor: riskScore > 70 ? 'rgba(255, 48, 64, 1)' : 'rgba(0, 200, 255, 1)',
                     pointBorderColor: '#fff',
                     pointHoverBackgroundColor: '#fff',
                     pointHoverBorderColor: 'rgba(0, 200, 255, 1)',
@@ -102,7 +143,16 @@ const Overview = () => {
 
     return (
         <div className="page active" id="page-overview">
-            {isCallActive && riskScore > 85 && (
+            {latestComplaint && (
+                <div className="alert-banner" style={{ background: 'var(--red)', border: '2px solid white', boxShadow: '0 0 20px rgba(255,0,0,0.5)', zIndex: 1000 }}>
+                    <span className="alert-icon">🔥</span>
+                    <span className="alert-text">NEW CASE FILED: Victim #{latestComplaint.victimUid} reported a scam on Channel {latestComplaint.channelId}</span>
+                    <span className="alert-time">URGENT</span>
+                    <button className="btn-action" onClick={() => window.open(`/police/cases`, '_self')}>VIEW CASE</button>
+                </div>
+            )}
+
+            {isCallActive && riskScore > 70 && (
                 <div className="alert-banner">
                     <span className="alert-icon">🚨</span>
                     <span className="alert-text">GOLDEN MINUTE ALERT: Active scam call detected — Channel {currentChannel}, Risk {riskScore}%, Family notified</span>
@@ -110,7 +160,7 @@ const Overview = () => {
                     <button className="btn-action red" style={{ marginLeft: '12px' }}>INTERVENE</button>
                 </div>
             )}
-
+            
             <div className="grid-4">
                 <div className="panel kpi">
                     <div className="panel-head"><div className="panel-title">ACTIVE THREATS</div></div>
@@ -132,9 +182,9 @@ const Overview = () => {
                 </div>
                 <div className="panel kpi">
                     <div className="panel-head"><div className="panel-title">VOICEPRINTS</div></div>
-                    <div className="kpi-val orange">38</div>
+                    <div className="kpi-val orange">{vpStats.total}</div>
                     <div className="kpi-label">UNIQUE SUSPECTS</div>
-                    <div className="kpi-delta up">▲ 3 new today</div>
+                    <div className="kpi-delta up">▲ {vpStats.active} active today</div>
                 </div>
             </div>
 

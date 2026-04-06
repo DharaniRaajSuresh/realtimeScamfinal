@@ -25,7 +25,10 @@ const Analyze = () => {
     const [selectedLanguage, setSelectedLanguage] = useState(null);
 
     // Global Context
-    const { isCallActive, riskScore, scamTactics, startAnalysis, stopAnalysis, addTranscriptChunk, transcriptHistory } = useScamContext();
+    const { isCallActive, riskScore, scamTactics, ollamaReasoning, startAnalysis, stopAnalysis, addTranscriptChunk, transcriptHistory } = useScamContext();
+
+    // UI state
+    const [reportingStatus, setReportingStatus] = useState(null); // 'sending' | 'success' | 'error'
 
     // Call state
     const [channelName, setChannelName] = useState('demo-room-1');
@@ -35,10 +38,62 @@ const Analyze = () => {
     const localAudioTrack = useRef(null);
     const currentAgentId = useRef(null);
     const myUidRef = useRef(null);
+    const localSpeechRecognizer = useRef(null);
+    const isCallActiveRef = useRef(false);
+    
+    // Chunking Buffer
+    const chunkTimerRef = useRef(null);
 
-    // Live transcript display
     const [liveTranscripts, setLiveTranscripts] = useState([]);
     const transcriptEndRef = useRef(null);
+    const humanJoinOrder = useRef([]); // Track UIDs of human users in order
+
+    // Refs for dynamically accessing latest context state inside closures
+    const riskScoreRef = useRef(riskScore);
+    const ollamaReasoningRef = useRef(ollamaReasoning);
+    const transcriptHistoryRef = useRef(transcriptHistory);
+    const hasSavedConvoRef = useRef(false);
+
+    // MediaRecorder — captures local+remote audio mix for voice pipeline
+    const mediaRecorderRef = useRef(null);
+    const recordedChunksRef = useRef([]);
+    const [voiceProcessing, setVoiceProcessing] = useState(null); // 'processing' | 'done' | 'error'
+    const [voiceResult, setVoiceResult] = useState(null);
+
+    // Sticky UI for reporting — once risk > 70%, it stays visible
+    const [stickyReportOption, setStickyReportOption] = useState(false);
+
+    useEffect(() => {
+        if (riskScore > 70 && !stickyReportOption) {
+            setStickyReportOption(true);
+        }
+    }, [riskScore, stickyReportOption]);
+
+    useEffect(() => {
+        riskScoreRef.current = riskScore;
+        ollamaReasoningRef.current = ollamaReasoning;
+        transcriptHistoryRef.current = transcriptHistory;
+    }, [riskScore, ollamaReasoning, transcriptHistory]);
+
+    const autoSaveConversationToMongo = () => {
+        if (hasSavedConvoRef.current) return; // Prevent duplicate saves for the same conversation
+        
+        const history = transcriptHistoryRef.current;
+        if (history.length > 0) {
+            hasSavedConvoRef.current = true;
+            fetch('/api/analyze/store_conversation', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    channelId: channelName,
+                    transcript: history.map(t => `${t.speaker}: ${t.text}`).join('\n'),
+                    riskScore: riskScoreRef.current,
+                    reasoning: ollamaReasoningRef.current
+                })
+            }).then(() => console.log("✅ Convo Auto-Saved to MongoDB since a user left!"))
+            .catch(e => console.error("Failed to Auto-Save conversation", e));
+        }
+    };
 
     useEffect(() => {
         if (location.state?.startMic) {
@@ -140,26 +195,38 @@ const Analyze = () => {
 
         if (!text.trim()) return;
 
-        // Only show transcript from the OTHER user (scammer), not from ourselves
-        if (myUidRef.current && uid === String(myUidRef.current)) {
-            console.log(`[STT] Skipping own speech (UID ${uid})`);
+        // 📝 Role determination: First joiner = Scammer, Second joiner = Victim
+        if (!humanJoinOrder.current.includes(Number(uid)) && Number(uid) < 10000 && Number(uid) !== STT_SUB_BOT_UID && Number(uid) !== STT_PUB_BOT_UID) {
+            humanJoinOrder.current.push(Number(uid));
+        }
+
+        const isMe = myUidRef.current && Number(uid) === Number(myUidRef.current);
+        
+        // Let the highly accurate native Web Speech API handle the local transcript
+        if (isMe) {
             return;
         }
 
-        console.log(`[STT] 📝 Scammer UID ${uid}: "${text}" (final: ${isFinal})`);
+        const roleIndex = humanJoinOrder.current.indexOf(Number(uid));
+        
+        let roleLabel = "Unknown";
+        if (roleIndex === 0) roleLabel = "SCAMMER";
+        else if (roleIndex === 1) roleLabel = "VICTIM";
+        else roleLabel = `User ${uid}`;
 
-        const speakerLabel = uid;
+        console.log(`[STT] 📝 ${roleLabel} (UID ${uid}): "${text}" (final: ${isFinal})`);
+
+        const speakerLabel = roleLabel;
         const entry = {
-            uid: speakerLabel,
+            role: speakerLabel,
             text: text.trim(),
             isFinal,
             timestamp: Date.now()
         };
 
         setLiveTranscripts(prev => {
-            // If not final, update the last entry from the same UID
             if (!isFinal) {
-                const lastIdx = prev.findLastIndex(t => t.uid === speakerLabel && !t.isFinal);
+                const lastIdx = prev.findLastIndex(t => t.role === speakerLabel && !t.isFinal);
                 if (lastIdx >= 0) {
                     const updated = [...prev];
                     updated[lastIdx] = entry;
@@ -169,28 +236,18 @@ const Analyze = () => {
             return [...prev, entry];
         });
 
-        // If this is a final transcript, send it to the backend for scam analysis
+        // If this is a final transcript, add it to our frontend history
         if (isFinal && text.trim().length > 2) {
             addTranscriptChunk(speakerLabel, text.trim());
-
-            // Send to backend analyze endpoint
-            fetch('/api/analyze', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    channelId: channelName,
-                    speakerId: speakerLabel,
-                    text: text.trim()
-                })
-            }).catch(err => console.error('[STT] Failed to send for analysis:', err));
         }
     };
 
     const joinCall = async () => {
         try {
-            // 1. Generate a random UID for this user
-            const myUid = Math.floor(Math.random() * 9000) + 1000; // 1000-9999
+            const myUid = Math.floor(Math.random() * 8000) + 2000; // 2000-9999 (Avoid bot UIDs)
             myUidRef.current = myUid;
+            humanJoinOrder.current = []; // Reset join order
+            hasSavedConvoRef.current = false; // Reset save tracker for new call
 
             // 2. Fetch config from backend (token is null in test mode)
             const res = await fetch(`/api/agora/token/${channelName}?uid=${myUid}`);
@@ -202,34 +259,73 @@ const Analyze = () => {
 
             // 3. Initialize Agora Client
             agoraClient.current = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
+            
+
 
             // Listen for remote users publishing audio or data
             agoraClient.current.on("user-published", async (user, mediaType) => {
-                console.log(`[Agora] user-published: UID ${user.uid}, type: ${mediaType}`);
-                await agoraClient.current.subscribe(user, mediaType);
-                if (mediaType === "audio") {
-                    // Don't play audio from STT bots, but DO subscribe (needed for data stream)
-                    if (user.uid !== STT_SUB_BOT_UID && user.uid !== STT_PUB_BOT_UID) {
-                        const remoteAudioTrack = user.audioTrack;
-                        remoteAudioTrack.play();
+                console.log(`[Agora] 📡 user-published: UID ${user.uid}, type: ${mediaType}`);
+                try {
+                    await agoraClient.current.subscribe(user, mediaType);
+                    console.log(`[Agora] ✅ Subscribed to UID ${user.uid} (${mediaType})`);
+                    
+                    if (mediaType === "audio") {
+                        // Don't play audio from STT bots
+                        if (user.uid !== STT_SUB_BOT_UID && user.uid !== STT_PUB_BOT_UID) {
+                            // Ensure audio is played, handle autoplay blocks
+                            const playAudio = async () => {
+                                try {
+                                    await user.audioTrack.play();
+                                    console.log(`[Agora] 🔊 Playing audio from human user ${user.uid}`);
+                                } catch (err) {
+                                    console.error(`[Agora] ❌ Autoplay blocked for UID ${user.uid}. Need user gesture.`, err);
+                                    // Fallback: try to play again on any click
+                                    window.addEventListener('click', () => {
+                                        user.audioTrack.play().catch(e => console.error("Manual play failed:", e));
+                                    }, { once: true });
+                                }
+                            };
+                            
+                            playAudio();
+                            
+                            // Track human join order for remote users
+                            if (!humanJoinOrder.current.includes(user.uid)) {
+                                humanJoinOrder.current.push(user.uid);
+                            }
+                        }
                     }
+                } catch (e) {
+                    console.error(`[Agora] ❌ Failed to subscribe to UID ${user.uid}:`, e);
                 }
             });
 
             agoraClient.current.on("user-joined", (user) => {
+                console.log(`[Agora] 👤 user-joined: UID ${user.uid}`);
                 // Ignore the STT bots for the UI indicator
                 if (user.uid !== STT_SUB_BOT_UID && user.uid !== STT_PUB_BOT_UID) {
                     setRemoteConnected(true);
-                    console.log(`✅ User ${user.uid} joined the channel`);
+                    console.log(`[Agora] ✅ Human user ${user.uid} is now visible in UI`);
                 } else {
-                    console.log(`🤖 STT Bot ${user.uid} joined the channel`);
+                    console.log(`[Agora] 🤖 STT Bot ${user.uid} joined the channel`);
                 }
             });
 
             agoraClient.current.on("user-left", (user) => {
+                console.log(`[Agora] 🚪 user-left: UID ${user.uid}`);
                 if (user.uid !== STT_SUB_BOT_UID && user.uid !== STT_PUB_BOT_UID) {
-                    setRemoteConnected(false);
-                    console.log(`❌ User ${user.uid} left the channel`);
+                    // A human user left the room -> Conversation effectively ended
+                    autoSaveConversationToMongo();
+
+                    // Only disconnect if there are no other humans left
+                    const humans = agoraClient.current.remoteUsers.filter(u => u.uid !== STT_SUB_BOT_UID && u.uid !== STT_PUB_BOT_UID);
+                    if (humans.length === 0) {
+                        setRemoteConnected(false);
+                        console.log(`[Agora] ❌ Last human user ${user.uid} left the channel. Remote disconnected.`);
+                    } else {
+                        console.log(`[Agora] ℹ️ Human user ${user.uid} left, but ${humans.length} other human(s) remain.`);
+                    }
+                } else {
+                    console.log(`[Agora] 🤖 STT Bot ${user.uid} left the channel`);
                 }
             });
 
@@ -248,21 +344,80 @@ const Analyze = () => {
 
             // Join channel (token is null in test mode, which is fine)
             if (appId) {
+                console.log(`🎤 Attempting to join '${channelName}' as UID ${myUid}...`);
                 const uid = await agoraClient.current.join(appId, channelName, token, myUid);
-                console.log(`🎤 Joined channel '${channelName}' with UID ${uid}`);
+                console.log(`🎤 SUCCESS: Joined channel '${channelName}' with UID ${uid}`);
+                
+                // Track our own join order
+                if (!humanJoinOrder.current.includes(uid)) {
+                    humanJoinOrder.current.push(uid);
+                }
 
                 // Check for existing human users
                 const existingUsers = agoraClient.current.remoteUsers;
                 const hasHuman = existingUsers.some(u => u.uid !== STT_SUB_BOT_UID && u.uid !== STT_PUB_BOT_UID);
-                setRemoteConnected(hasHuman);
+                if (hasHuman) {
+                    console.log("[Agora] 👥 Found existing human users in room");
+                    setRemoteConnected(true);
+                }
             } else {
-                console.warn("No Agora App ID found.");
+                console.error("❌ ABORT: No Agora App ID provided.");
+                alert("Agora App ID is missing. Check your configuration.");
+                return;
             }
 
             // 4. Create and publish local mic
             localAudioTrack.current = await AgoraRTC.createMicrophoneAudioTrack();
             if (appId) {
+                console.log(`[Agora] 🎙️ Publishing local audio track for UID ${myUidRef.current}`);
                 await agoraClient.current.publish([localAudioTrack.current]);
+            }
+
+            // 4.5. Start MediaRecorder to capture call audio for voice pipeline
+            try {
+                const micStream = localAudioTrack.current.getMediaStreamTrack();
+                const audioContext = new AudioContext();
+                const dest = audioContext.createMediaStreamDestination();
+
+                // Mix local mic
+                const localSource = audioContext.createMediaStreamSource(new MediaStream([micStream]));
+                localSource.connect(dest);
+
+                // We'll also capture remote audio when it arrives
+                const connectRemoteAudio = () => {
+                    if (!agoraClient.current) return;
+                    agoraClient.current.remoteUsers.forEach(user => {
+                        if (user.audioTrack && user.uid !== STT_SUB_BOT_UID && user.uid !== STT_PUB_BOT_UID) {
+                            try {
+                                const remoteTrack = user.audioTrack.getMediaStreamTrack();
+                                const remoteSource = audioContext.createMediaStreamSource(new MediaStream([remoteTrack]));
+                                remoteSource.connect(dest);
+                                console.log(`[Recorder] 🎙️ Mixed remote UID ${user.uid} into recording`);
+                            } catch (e) {
+                                console.warn(`[Recorder] Failed to mix remote UID ${user.uid}:`, e);
+                            }
+                        }
+                    });
+                };
+
+                // Connect existing remote users and set up listener for new ones
+                connectRemoteAudio();
+                const remoteInterval = setInterval(connectRemoteAudio, 2000);
+
+                recordedChunksRef.current = [];
+                const recorder = new MediaRecorder(dest.stream, { mimeType: 'audio/webm;codecs=opus' });
+                recorder.ondataavailable = (e) => {
+                    if (e.data.size > 0) recordedChunksRef.current.push(e.data);
+                };
+                recorder.onstop = () => {
+                    clearInterval(remoteInterval);
+                    audioContext.close().catch(() => {});
+                };
+                recorder.start(1000); // Collect chunks every second
+                mediaRecorderRef.current = recorder;
+                console.log('[Recorder] 🔴 MediaRecorder started — capturing call audio');
+            } catch (recErr) {
+                console.warn('[Recorder] MediaRecorder setup failed (non-fatal):', recErr);
             }
 
             // 5. Trigger Server-Side STT
@@ -283,9 +438,96 @@ const Analyze = () => {
                 console.error("Failed to start server-side STT:", err);
             }
 
-            // 6. Start our local Context
+            // 6. Setup High Accuracy Local STT via Web Speech API
+            isCallActiveRef.current = true;
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (SpeechRecognition) {
+                const recognizer = new SpeechRecognition();
+                recognizer.continuous = true;
+                recognizer.interimResults = true;
+                recognizer.lang = selectedLanguage === 'ta' ? 'ta-IN' : 'en-US';
+
+                recognizer.onresult = (event) => {
+                    let interimText = '';
+                    let finalText = '';
+                    for (let i = event.resultIndex; i < event.results.length; ++i) {
+                        if (event.results[i].isFinal) {
+                            finalText += event.results[i][0].transcript;
+                        } else {
+                            interimText += event.results[i][0].transcript;
+                        }
+                    }
+
+                    const roleLabel = "YOU";
+                    const mergedText = (finalText + " " + interimText).trim();
+                    if (!mergedText) return;
+
+                    const entry = {
+                        role: roleLabel,
+                        text: mergedText,
+                        isFinal: !!finalText,
+                        timestamp: Date.now()
+                    };
+
+                    setLiveTranscripts(prev => {
+                        const lastIdx = prev.findLastIndex(t => t.role === roleLabel && !t.isFinal);
+                        if (lastIdx >= 0) {
+                            const updated = [...prev];
+                            updated[lastIdx] = entry;
+                            return updated;
+                        }
+                        return [...prev, entry];
+                    });
+
+                    if (finalText.trim().length > 2) {
+                        console.log(`[Local STT] 📝 YOU: "${finalText.trim()}" (final: true)`);
+                        addTranscriptChunk(roleLabel, finalText.trim());
+                    }
+                };
+                
+                recognizer.onend = () => {
+                    if (isCallActiveRef.current) {
+                        try { recognizer.start(); } catch(e){}
+                    }
+                };
+
+                try {
+                    recognizer.start();
+                    localSpeechRecognizer.current = recognizer;
+                    console.log("[Local STT] High-Accuracy Web Speech API started.");
+                } catch(e) { console.warn("Failed to start speech rec", e); }
+            }
+
+            // 7. Start our local Context
             startAnalysis(channelName);
             setLiveTranscripts([]);
+
+            // 8. LIVE CHUNKING LOOP (Every 3 seconds)
+            chunkTimerRef.current = setInterval(() => {
+                // To get cummulative scam score over time, we send the entire transcript history
+                // mapped over the last 3-second window's context.
+                // NOTE: Using functional state to get the freshest context data
+                setLiveTranscripts((currentTranscripts) => {
+                    // Extract all final texts joined together
+                    const validTexts = currentTranscripts
+                        .filter(t => t.isFinal)
+                        .map(t => t.text)
+                        .join(" ");
+
+                    if (validTexts.length > 5) {
+                        fetch('/api/analyze', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                channelId: channelName,
+                                speakerId: "ALL",
+                                text: validTexts
+                            })
+                        }).catch(err => console.error('[3s Chunk] Analysis failed:', err));
+                    }
+                    return currentTranscripts;
+                });
+            }, 3000);
 
         } catch (error) {
             console.error("Error joining call:", error);
@@ -295,6 +537,23 @@ const Analyze = () => {
 
     const leaveCall = async () => {
         setRemoteConnected(false);
+        isCallActiveRef.current = false;
+
+        // Stop MediaRecorder if active
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+            try {
+                mediaRecorderRef.current.stop();
+                console.log('[Recorder] ⏹ MediaRecorder stopped');
+            } catch (e) {
+                console.warn('[Recorder] Stop error:', e);
+            }
+        }
+        
+        if (localSpeechRecognizer.current) {
+            try { localSpeechRecognizer.current.stop(); } catch(e){}
+            localSpeechRecognizer.current = null;
+        }
+
         if (localAudioTrack.current) {
             localAudioTrack.current.stop();
             localAudioTrack.current.close();
@@ -320,7 +579,75 @@ const Analyze = () => {
             currentAgentId.current = null;
         }
 
+        if (chunkTimerRef.current) {
+            clearInterval(chunkTimerRef.current);
+            chunkTimerRef.current = null;
+        }
+
+        // Trigger auto-save if the local user is the one explicitly ending the call
+        autoSaveConversationToMongo();
+
         stopAnalysis();
+        setReportingStatus(null);
+        setStickyReportOption(false);
+    };
+
+    const handleReport = async () => {
+        setReportingStatus('sending');
+        try {
+            // Guarantee the conversation is saved to MongoDB upon manual reporting
+            autoSaveConversationToMongo();
+
+            // Ensure case ID is persistent for both audio and case record
+            const caseId = `CYB-${Date.now()}`;
+            const fullTranscript = transcriptHistory.map(t => `${t.speaker}: ${t.text}`).join('\n');
+
+            // 1. Prepare common case data
+            const formData = new FormData();
+            formData.append('case_id', caseId);
+            formData.append('user_id', `VICTIM-${myUidRef.current || '777'}`);
+            formData.append('call_id', channelName);
+            formData.append('scam_type', scamTactics.length > 0 ? scamTactics[0] : 'Unknown');
+            formData.append('risk_score', String(riskScore));
+            formData.append('tactics', scamTactics.join(','));
+            formData.append('city', 'Chennai'); // For demo; replace with real location if available
+            formData.append('district', 'Chennai');
+            formData.append('transcript', fullTranscript);
+            formData.append('summary', ollamaReasoning || '');
+            formData.append('channel_id', channelName);
+
+            // 2. Attach audio if recording is available
+            if (recordedChunksRef.current.length > 0) {
+                const audioBlob = new Blob(recordedChunksRef.current, { type: 'audio/webm;codecs=opus' });
+                formData.append('audio', audioBlob, `${caseId}.webm`);
+                setVoiceProcessing('processing');
+            }
+
+            // 3. Send single request to the voice recording/case management pipeline
+            const response = await fetch('/api/voice/process', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                setReportingStatus('success');
+                setTimeout(() => setReportingStatus(null), 3000);
+
+                if (data.success) {
+                    setVoiceResult(data.result);
+                    setVoiceProcessing('done');
+                    console.log('✅ Voice/Case pipeline success:', data.result.verdict);
+                } else {
+                    setVoiceProcessing('error');
+                }
+            } else {
+                setReportingStatus('error');
+            }
+        } catch (error) {
+            console.error('Reporting error:', error);
+            setReportingStatus('error');
+        }
     };
 
     const toggleCall = () => {
@@ -333,7 +660,7 @@ const Analyze = () => {
 
     const getMicStatus = () => {
         const v = riskScore;
-        const lbl = v > 85 ? '🚨 CRITICAL RISK — Scam Detected!' : v > 60 ? '⚠️ HIGH RISK — Likely scam call!' : v > 35 ? '⚠️ Suspicious patterns detected' : '🔍 Listening for scam keywords...';
+        const lbl = v > 70 ? '🚨 CRITICAL RISK — Scam Detected!' : v > 60 ? '⚠️ HIGH RISK — Likely scam call!' : v > 35 ? '⚠️ Suspicious patterns detected' : '🔍 Listening for scam keywords...';
         const color = v > 85 ? 'var(--red-u)' : v > 60 ? 'var(--orange-u)' : v > 35 ? 'var(--yellow-u)' : 'var(--green-u)';
         const pulsingClass = v > 85 ? 'critical-pulse' : '';
         return { v, lbl, color, pulsingClass };
@@ -439,6 +766,23 @@ const Analyze = () => {
                             </div>
                         )}
 
+                        {/* Ollama + Pinecone Deep Analysis Context */}
+                        <div style={{
+                            width: '100%', maxWidth: '360px', background: 'rgba(79, 142, 255, 0.1)',
+                            borderRadius: '16px', padding: '12px', marginBottom: '16px',
+                            border: '1px solid rgba(79, 142, 255, 0.3)', position: 'relative', overflow: 'hidden'
+                        }}>
+                            <div style={{ fontSize: '10px', fontWeight: 800, color: 'var(--blue-u)', letterSpacing: '1px', marginBottom: '4px' }}>
+                                🧠 SCAM CONTEXT
+                            </div>
+                            <div style={{ fontSize: '13px', color: 'var(--text-u)', lineHeight: '1.4' }}>
+                                {ollamaReasoning}
+                            </div>
+                            <div style={{ position: 'absolute', top: 0, right: 0, padding: '4px 8px', fontSize: '10px', background: 'rgba(79, 142, 255, 0.2)', color: 'var(--blue-u)', borderBottomLeftRadius: '8px' }}>
+                                HYBRID ENGINE
+                            </div>
+                        </div>
+
                         <div style={{
                             width: '100%', maxWidth: '360px', background: 'rgba(28, 28, 30, 0.6)',
                             backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
@@ -455,7 +799,16 @@ const Analyze = () => {
                             ) : (
                                 liveTranscripts.map((t, idx) => (
                                     <div key={idx} style={{ marginBottom: '10px', fontSize: '16px', lineHeight: '1.4', color: t.isFinal ? 'var(--text-u)' : 'rgba(255,255,255,0.6)' }}>
-                                        <span style={{ fontWeight: 600, color: 'var(--muted-u)', marginRight: '8px' }}>Caller:</span>
+                                        <span style={{ 
+                                            fontWeight: 700, 
+                                            fontSize: '11px',
+                                            color: t.role === 'SCAMMER' ? 'var(--red-u)' : 'var(--green-u)', 
+                                            marginRight: '8px',
+                                            background: t.role === 'SCAMMER' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(34, 197, 94, 0.1)',
+                                            padding: '2px 6px',
+                                            borderRadius: '4px',
+                                            textTransform: 'uppercase'
+                                        }}>{t.role}:</span>
                                         {t.text}
                                     </div>
                                 ))
@@ -464,8 +817,79 @@ const Analyze = () => {
                         </div>
                     </div>
 
+                    {/* Report and Voice Processing Status (Moved Up) */}
+                    {stickyReportOption && (
+                        <button
+                            onClick={handleReport}
+                            disabled={reportingStatus === 'sending'}
+                            style={{
+                                marginBottom: '12px', width: '100%', maxWidth: '280px', padding: '14px',
+                                borderRadius: '16px', border: 'none', cursor: 'pointer',
+                                background: reportingStatus === 'success' ? 'var(--green-u)' : 'rgba(255,255,255,0.1)',
+                                color: 'white', fontWeight: 800, fontSize: '13px',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+                                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                                boxShadow: reportingStatus === 'sending' ? 'inset 0 0 10px rgba(0,0,0,0.5)' : 'none',
+                                backdropFilter: 'blur(10px)'
+                            }}
+                        >
+                            {reportingStatus === 'sending' ? (
+                                <>
+                                    <span className="spinner" style={{ width: '14px', height: '14px', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: 'white', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }}></span>
+                                    SECURE FILING...
+                                </>
+                            ) : reportingStatus === 'success' ? (
+                                "✅ FILED TO CYBERCRIME"
+                            ) : (
+                                "🚨 REPORT TO POLICE"
+                            )}
+                        </button>
+                    )}
+
+                    {voiceProcessing && (
+                        <div style={{
+                            marginBottom: '16px', width: '100%', maxWidth: '280px',
+                            padding: '12px', borderRadius: '14px',
+                            background: voiceProcessing === 'done'
+                                ? (voiceResult?.matched ? 'rgba(239, 68, 68, 0.2)' : 'rgba(34, 197, 94, 0.2)')
+                                : 'rgba(79, 142, 255, 0.15)',
+                            border: `1px solid ${voiceProcessing === 'done'
+                                ? (voiceResult?.matched ? 'rgba(239, 68, 68, 0.4)' : 'rgba(34, 197, 94, 0.4)')
+                                : 'rgba(79, 142, 255, 0.4)'}`,
+                            textAlign: 'center',
+                            backdropFilter: 'blur(10px)'
+                        }}>
+                            <div style={{ fontSize: '10px', fontWeight: 800, letterSpacing: '1px', marginBottom: '4px',
+                                color: voiceProcessing === 'done'
+                                    ? (voiceResult?.matched ? 'var(--red-u)' : 'var(--green-u)')
+                                    : 'var(--blue-u)'
+                            }}>
+                                🔊 VOICEPRINT ANALYSIS
+                            </div>
+                            {voiceProcessing === 'processing' && (
+                                <div style={{ fontSize: '12px', color: 'var(--blue-u)' }}>
+                                    Extracting voice fingerprint...
+                                </div>
+                            )}
+                            {voiceProcessing === 'done' && voiceResult && (
+                                <div style={{ fontSize: '13px', fontWeight: 700,
+                                    color: voiceResult.matched ? 'var(--red-u)' : 'var(--green-u)'
+                                }}>
+                                    {voiceResult.verdict}
+                                    {voiceResult.confidence && ` — ${voiceResult.confidence}`}
+                                    {voiceResult.victim_count > 1 && ` · ${voiceResult.victim_count} victims`}
+                                </div>
+                            )}
+                            {voiceProcessing === 'error' && (
+                                <div style={{ fontSize: '12px', color: 'var(--orange-u)' }}>
+                                    Voice processing unavailable
+                                </div>
+                            )}
+                        </div>
+                    )}
+
                     {/* Bottom: End Call Button */}
-                    <div style={{ paddingTop: '20px', paddingBottom: '20px' }}>
+                    <div style={{ paddingBottom: '30px', display: 'flex', justifyContent: 'center', width: '100%' }}>
                         <button
                             style={{ background: '#ff3b30', width: '76px', height: '76px', borderRadius: '50%', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'transform 0.2s', boxShadow: '0 4px 12px rgba(255, 59, 48, 0.3)' }}
                             onClick={toggleCall}

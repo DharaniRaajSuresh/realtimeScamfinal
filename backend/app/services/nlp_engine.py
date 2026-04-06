@@ -1,5 +1,9 @@
 import re
 from typing import Dict, Any
+from app.services.ollama_service import ollama_service
+
+import asyncio
+from app.services.pinecone_service import pinecone_service
 
 class ScamEngine:
     def __init__(self):
@@ -16,7 +20,7 @@ class ScamEngine:
         matches = pattern.findall(text)
         return len(matches)
 
-    def calculate_risk(self, text: str, speaker_type: str) -> Dict[str, Any]:
+    async def calculate_risk(self, text: str, speaker_type: str) -> Dict[str, Any]:
         text_lower = text.lower()
         score = 0
         tactics_found = []
@@ -26,8 +30,7 @@ class ScamEngine:
         auth_count = self._count_matches(text_lower, "authority")
         comp_count = self._count_matches(text_lower, "compliance")
 
-        if speaker_type == "remote":
-            # the suspected scammer
+        if speaker_type in ["remote", "SCAMMER", "ALL"]:
             score += fin_count * 20
             score += urg_count * 15
             score += auth_count * 25
@@ -36,19 +39,40 @@ class ScamEngine:
             if urg_count > 0: tactics_found.append("Time Pressure / Urgency")
             if auth_count > 0: tactics_found.append("Authority Impersonation")
 
-        elif speaker_type == "local":
-            # the potential victim
+        if speaker_type in ["local", "YOU", "VICTIM", "ALL"]:
             score += comp_count * 15
             if fin_count > 0: score += fin_count * 10
             
             if comp_count > 0: tactics_found.append("High Compliance")
             if fin_count > 0: tactics_found.append("Financial Disclosure")
 
-        # Cap score at 100
         risk_score = min(100, score)
 
+        # DEEP ANALYSIS: Run Ollama and Pinecone Concurrently
+        ollama_analysis = {"risk_score": 0, "reasoning": "Awaiting sufficient conversation length...", "is_scam": False}
+        pinecone_match = {"score": 0}
+
+        if len(text.split()) > 10:
+            # Dispatch threads concurrently
+            ollama_task = asyncio.to_thread(ollama_service.analyze_scam, text)
+            pinecone_task = asyncio.to_thread(pinecone_service.query_scamscript, text)
+            
+            # Wait for both engines
+            ollama_analysis, pinecone_match = await asyncio.gather(ollama_task, pinecone_task)
+            
+            pc_score = pinecone_match.get("score", 0) * 100
+            
+            # Mathematical scoring logic merging pure Keyword, Pinecone Vector Matching, and Ollama deduction
+            if pc_score > 80.0:
+                # Direct match to a known scam vector overrides general logic
+                risk_score = 95
+                ollama_analysis["reasoning"] = f"[Pinecone Pattern Match: {pc_score:.1f}%] " + ollama_analysis["reasoning"]
+            else:
+                if ollama_analysis["risk_score"] > risk_score:
+                    risk_score = min(100, (risk_score + ollama_analysis["risk_score"]) // 2)
+
         # Determine vulnerability label
-        if risk_score > 85:
+        if risk_score > 70:
             vuln = "CRITICAL"
             scam_type = "High-Risk active manipulation"
         elif risk_score > 60:
@@ -61,7 +85,6 @@ class ScamEngine:
             vuln = "LOW"
             scam_type = "Normal conversation"
 
-        # Generalize a major scam type if specific triggers are met
         if fin_count > 0 and urg_count > 0:
             scam_type = "Financial Impersonation Fraud"
 
@@ -69,5 +92,6 @@ class ScamEngine:
             "risk_score": risk_score,
             "scam_type": scam_type,
             "tactics": tactics_found,
-            "vulnerability": vuln
+            "vulnerability": vuln,
+            "ollama_reasoning": ollama_analysis["reasoning"]
         }
